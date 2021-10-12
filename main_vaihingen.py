@@ -1,5 +1,4 @@
 import tensorflow as tf
-import scipy.misc
 import numpy as np
 import csv
 import os
@@ -10,25 +9,32 @@ from scipy import interpolate
 from skimage.filters import gaussian
 import scipy
 import time
+import imageio
+from PIL import Image
 import math
 from PIL import Image, ImageOps
 from tensorflow.python.client import timeline
-
+import warnings
+warnings.filterwarnings("ignore")
 import matplotlib.pyplot as plt
 
 model_path = 'models/vaihingen/'
-do_plot = False
+do_plot = True
 do_train = True
 start_test = 100
 
+print("tf version: ")
+print(tf.__version__)
+tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 
-
-
+# E: energy term, A: first order gradient, encourage short polygon, B: second order gradient, encourage smooth polygon
+# K: ballon term, encourage inflating behavior
 def snake_process (mapE, mapA, mapB, mapK, init_snake):
-
     for i in range(mapE.shape[3]):
+        # -gradient of D
         Du = np.gradient(mapE[:,:,0,i], axis=0)
         Dv = np.gradient(mapE[:,:,0,i], axis=1)
+        # coordinates and corresponding small changes
         u = init_snake[:,0:1]
         v = init_snake[:,1:2]
         du = np.zeros(u.shape)
@@ -37,17 +43,16 @@ def snake_process (mapE, mapA, mapB, mapK, init_snake):
         snake_hist.append(np.array([u[:, 0], v[:, 0]]).T)
         tic = time.time()
         for j in range(1):
-            u, v, du, dv = sess2.run([tf_u, tf_v, tf_du, tf_dv], feed_dict={tf_Du: Du, tf_Dv: Dv,
-                                                                               tf_u0: u, tf_v0: v, tf_du0: du, tf_dv0: dv,
-                                                                               tf_alpha: mapA[:,:,0,i], tf_beta: mapB[:,:,0,i],
-                                                                               tf_kappa: mapK[:,:,0,i]}) #,options=run_options, run_metadata=run_metadata
+            u, v, du, dv = sess2.run([tf_u, tf_v, tf_du, tf_dv],
+                                     feed_dict={tf_Du: Du, tf_Dv: Dv,
+                                    tf_u0: u, tf_v0: v, tf_du0: du, tf_dv0: dv,
+                                    tf_alpha: mapA[:,:,0,i], tf_beta: mapB[:,:,0,i],
+                                    tf_kappa: mapK[:,:,0,i]}) #,options=run_options, run_metadata=run_metadata
             snake_hist.append(np.array([u[:, 0], v[:, 0]]).T)
 
         #print('%.2f' % (time.time() - tic) + ' s snake')
 
     return np.array([u[:,0],v[:,0]]).T,snake_hist
-
-
 
 
 #Load data
@@ -56,7 +61,7 @@ batch_size = 1
 numfilt = [32,64,128,128,256,256]
 im_size = 512
 out_size = 256
-data_path = '/mnt/bighd/Data/Vaihingen/buildings/'
+data_path = 'Data/buildings/'
 csvfile=open(data_path+'polygons.csv', newline='')
 reader = csv.reader(csvfile)
 images = np.zeros([im_size,im_size,3,168])
@@ -71,14 +76,20 @@ for i in range(168):
         poly[c, 1] = np.float(corners[2+2*c])*out_size/im_size
     [tck, u] = interpolate.splprep([poly[:, 0], poly[:, 1]], s=2, k=1, per=1)
     [GT[:,0,i], GT[:,1,i]] = interpolate.splev(np.linspace(0, 1, L), tck)
-    this_im  = scipy.misc.imread(data_path+'building_'+str(i+1).zfill(3)+'.tif')
-    images[:,:,:,i] = np.float32(this_im)/255
-    img_mask = scipy.misc.imread(data_path+'building_mask_' + str(i+1).zfill(3) + '.tif')/255
-    masks[:,:,0,i] = scipy.misc.imresize(img_mask,[out_size,out_size])/255
+    #image_file = data_path+'building_'+str(i+1).zfill(3)+'.tif'
+    #this_im  = imageio.imread(image_file)
+    #images[:,:,:,i] = np.float32(this_im)/255
+    #print(data_path+'building_mask_' + str(i+1).zfill(3) + '.tif')
+    #img_mask = Image.open(data_path+'building_mask_' + str(i+1).zfill(3) + '.tif')
+    #img_mask = np.array(img_mask)/255
+    img_mask = Image.open("Data/buildings/building_mask_001.tif")
+    masks[:,:,0,i] = img_mask.resize((out_size,out_size))
+    masks[:,:,0,i] /= 255
 GT = np.minimum(GT,out_size-1)
 GT = np.maximum(GT,0)
 
 with tf.device('/gpu:0'):
+    # CNN used to model the coefficient map for the ACM terms
     tvars, grads, predE, predA, predB, predK, l2loss, grad_predE, \
     grad_predA, grad_predB, grad_predK, grad_l2loss, x, y_ = CNN_B(im_size, out_size, L, batch_size=1,wd=0.01,layers=len(numfilt),numfilt=numfilt)
 
@@ -94,25 +105,27 @@ elif os.path.isdir(model_path+'results/polygons.csv'):
 
 
 # Add ops to save and restore all the variables.
-saver = tf.train.Saver()
+saver = tf.compat.v1.train.Saver()
 
 #Initialize CNN
-optimizer = tf.train.AdamOptimizer(1e-4, epsilon=1e-6)
+optimizer = tf.compat.v1.train.AdamOptimizer(1e-4, epsilon=1e-6)
 apply_gradients = optimizer.apply_gradients(zip(grads, tvars))
 
 with tf.device('/cpu:0'):
+    ## this is one step of update using the ACM model by minimizing the energy term
     tf_u, tf_v, tf_du, tf_dv, tf_Du, tf_Dv, tf_u0, tf_v0, tf_du0, tf_dv0, \
     tf_alpha, tf_beta, tf_kappa = snake_graph(out_size, L)
 
 
 
-def epoch(n,i,mode):
+def epoch(n,i,mode, frequency, counter):
     # mode (str): train or test
     batch_ind = np.arange(i,i+batch_size)
     batch = np.copy(images[:, :, :, batch_ind])
     batch_mask = np.copy(masks[:, :, :, batch_ind])
     thisGT = np.copy(GT[:, :, batch_ind[0]])
     if mode is 'train':
+        # doing data augmentation by adding rotation?
         ang = np.random.rand() * 360
         for j in range(len(batch_ind)):
             for b in range(batch.shape[2]):
@@ -147,8 +160,6 @@ def epoch(n,i,mode):
         M = mapE.shape[0]
         N = mapE.shape[1]
         der1, der2 = derivatives_poly(snake)
-
-
         der1_GT, der2_GT = derivatives_poly(thisGT)
 
         grads_arrayE = mapE * 0.01
@@ -174,7 +185,7 @@ def epoch(n,i,mode):
         #print('IoU = %.2f' % (iou))
     #if mode is 'test':
         #print('IoU = %.2f' % (iou))
-    if do_plot:
+    if do_plot and counter == frequency:
         plot_snakes(snake, snake_hist, thisGT, mapE, mapA, mapB, mapK, \
                 grads_arrayE, grads_arrayA, grads_arrayB, grads_arrayK, batch, batch_mask)
         #plt.show()
@@ -198,7 +209,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,log_device_place
         end_epoch = start_epoch + 1
         polygons_csvfile = open(model_path + 'results/' 'polygons.csv', 'a', newline='')
         polygons_writer = csv.writer(polygons_csvfile)
-
+    frequency = 20
     for n in range(start_epoch,end_epoch):
         iou_test = 0
         iou_train = 0
@@ -207,7 +218,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,log_device_place
             for i in range(0,100,batch_size):
                 #print(i)
                 #Do CNN inference
-                new_iou_train,snake = epoch(n,i,'train')
+                new_iou_train,snake = epoch(n,i,'train', frequency, i)
                 iou_train += new_iou_train
                 iter_count += 1
                 print('Train. Epoch ' + str(n) + '. Iter ' + str(iter_count) + '/' + str(100) + ', IoU = %.2f' % (
@@ -217,7 +228,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,log_device_place
             saver.save(sess,model_path+'model', global_step=n)
         iter_count = 0
         for i in range(start_test,168):
-            new_iou_test, snake = epoch(n, i, 'test')
+            new_iou_test, snake = epoch(n, i, 'test', frequency, frequency)
             if not do_train:
                 list_to_write = [len(snake)]
                 snake = np.reshape(snake,2*len(snake)).tolist()
@@ -235,17 +246,6 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True,log_device_place
             iou_writer.writerow([n,iou_train,iou_test])
             iou_csvfile.close()
             polygons_csvfile.close()
-
-
-
-
-
-
-
-
-#if os.path.isfile(model_path+'iuo_train_test.csv'):
-
-#else:
 
 
 

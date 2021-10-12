@@ -1,9 +1,13 @@
 from PIL import Image, ImageOps
 import math
+import matplotlib
+matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
+
 import scipy.misc
 import numpy as np
 import tensorflow as tf
+from PIL import Image
 
 
 
@@ -26,16 +30,16 @@ def active_contour_step(Fu, Fv, du, dv, snake_u, snake_v, alpha, beta,kappa,
     a = tf.squeeze(a)
     b = tf.squeeze(b)
     am1 = tf.concat([a[L-1:L],a[0:L-1]],0)
-    a0d0 = tf.diag(a)
-    am1d0 = tf.diag(am1)
+    a0d0 = tf.linalg.tensor_diag(a)
+    am1d0 = tf.linalg.tensor_diag(am1)
     a0d1 = tf.concat([a0d0[0:L,L-1:L], a0d0[0:L,0:L-1]], 1)
     am1dm1 = tf.concat([am1d0[0:L, 1:L], am1d0[0:L, 0:1]], 1)
 
     bm1 = tf.concat([b[L - 1:L], b[0:L - 1]],0)
     b1 = tf.concat([b[1:L], b[0:1]],0)
-    b0d0 = tf.diag(b)
-    bm1d0 = tf.diag(bm1)
-    b1d0 = tf.diag(b1)
+    b0d0 = tf.linalg.tensor_diag(b)
+    bm1d0 = tf.linalg.tensor_diag(bm1)
+    b1d0 = tf.linalg.tensor_diag(b1)
     b0dm1 = tf.concat([b0d0[0:L, 1:L], b0d0[0:L, 0:1]], 1)
     b0d1 = tf.concat([b0d0[0:L, L-1:L], b0d0[0:L, 0:L-1]], 1)
     bm1dm1 = tf.concat([bm1d0[0:L, 1:L], bm1d0[0:L, 0:1]], 1)
@@ -43,7 +47,7 @@ def active_contour_step(Fu, Fv, du, dv, snake_u, snake_v, alpha, beta,kappa,
     bm1dm2 = tf.concat([bm1d0[0:L, 2:L], bm1d0[0:L, 0:2]], 1)
     b1d2 = tf.concat([b1d0[0:L, L - 2:L], b1d0[0:L, 0:L - 2]], 1)
 
-
+    # these two are derivative of Eint w.r.t coordinates of node s, ys
     A = -am1dm1  + (a0d0 + am1d0) - a0d1
     B = bm1dm2 - 2*(bm1dm1+b0dm1) + (bm1d0+4*b0d0+b1d0) - 2*(b0d1+b1d1) + b1d2
 
@@ -59,6 +63,8 @@ def active_contour_step(Fu, Fv, du, dv, snake_u, snake_v, alpha, beta,kappa,
     kappa_collection = tf.gather(tf.reshape(kappa, tf.TensorShape([M * N])), u_interps*M  + v_interps)
     #kappa_collection = tf.reshape(kappa_collection,tf.TensorShape([L,s]))
     #kappa_collection = tf.Print(kappa_collection,[kappa_collection],summarize=1000)
+
+
     # Get the derivative of the balloon energy
     js = tf.cast(tf.range(1, s + 1),tf.float32)
     s2 = 1 / (s * s)
@@ -66,8 +72,10 @@ def active_contour_step(Fu, Fv, du, dv, snake_u, snake_v, alpha, beta,kappa,
     int_ends_u_prev = s2 * (snake_u1 - snake_u)  # snake_u[prev_i] - snake_u[i]
     int_ends_v_next = s2 * (snake_vm1 - snake_v)  # snake_v[next_i] - snake_v[i]
     int_ends_v_prev = s2 * (snake_v1 - snake_v)  # snake_v[prev_i] - snake_v[i]
-    # contribution from the i+1 triangles to dE/du
 
+
+    # balloon expansion term, decomposed to u and v directional terms
+    # contribution from the i+1 triangles to dE/du
     dEb_du = tf.multiply(tf.reduce_sum(tf.multiply(js,
               tf.gather(kappa_collection,
               tf.range(s-1,-1,delta=-1),axis=1)),axis=1),
@@ -76,6 +84,7 @@ def active_contour_step(Fu, Fv, du, dv, snake_u, snake_v, alpha, beta,kappa,
               kappa_collection), axis=1),
               tf.squeeze(int_ends_v_prev))
 
+    # contribution from the i+1 triangles to dE/dv
     dEb_dv = -tf.multiply(tf.reduce_sum(tf.multiply(js,
              tf.gather(tf.gather(kappa_collection,tf.concat([tf.range(L-1,L),tf.range(L-1)],0),axis=0),
              tf.range(s - 1, -1, delta=-1), axis=1)), axis=1),
@@ -96,10 +105,11 @@ def active_contour_step(Fu, Fv, du, dv, snake_u, snake_v, alpha, beta,kappa,
     # Movements are capped to max_px_move per iteration:
     #du = -max_px_move*tf.tanh( (fu - tf.reshape(dEb_du,fu.shape) + 2*tf.matmul(A/delta_s+B/tf.square(delta_s),snake_u))*gamma )*0.5 + du*0.5
     #dv = -max_px_move*tf.tanh( (fv - tf.reshape(dEb_dv,fv.shape) + 2*tf.matmul(A/delta_s+B/tf.square(delta_s),snake_v))*gamma )*0.5 + dv*0.5
-    du = -max_px_move * tf.tanh((fu  - tf.reshape(dEb_du,fu.shape))*gamma )*0.5 + du*0.5
-    dv = -max_px_move*tf.tanh( (fv  - tf.reshape(dEb_dv,fv.shape))*gamma )*0.5 + dv*0.5
-    snake_u = tf.matmul(tf.matrix_inverse(tf.eye(L._value) + 2*gamma*(A/delta_s + B/(delta_s*delta_s))), snake_u + gamma * du)
-    snake_v = tf.matmul(tf.matrix_inverse(tf.eye(L._value) + 2 * gamma * (A / delta_s + B / (delta_s * delta_s))), snake_v + gamma * dv)
+    du = -max_px_move * tf.tanh((fu  - tf.reshape(dEb_du,fu.shape))*gamma)*0.5 + du*0.5
+    dv = -max_px_move * tf.tanh((fv  - tf.reshape(dEb_dv,fv.shape))*gamma)*0.5 + dv*0.5
+    # the new u, v calculated based on gradient descent using the energy term,
+    snake_u = tf.matmul(tf.linalg.inv(tf.eye(L._value) + 2 * gamma * (A/delta_s + B/(delta_s*delta_s))), snake_u + gamma * du)
+    snake_v = tf.matmul(tf.linalg.inv(tf.eye(L._value) + 2 * gamma * (A/delta_s + B/(delta_s * delta_s))), snake_v + gamma * dv)
 
     #snake_u = np.matmul(np.linalg.inv(np.eye(L, L) + 2 * gamma * (A / delta_s + B / np.square(delta_s))),
     #                    snake_u + gamma * du)
@@ -143,8 +153,11 @@ def polygon_area(u,v):
 def plot_snakes(snake,snake_hist,GT,mapE, mapA, mapB, mapK, grads_arrayE, grads_arrayA, grads_arrayB, grads_arrayK, image, mask):
 
     # Plot result
-    fig0, (ax) = plt.subplots(ncols=5,nrows=1)
-    im = ax[0].imshow(scipy.misc.imresize(np.abs(image[:,:,:,0]),mapE[:, :, 0, 0].shape))
+    fig0, ax = plt.subplots(ncols=5,nrows=1)
+    #im = ax[0].imshow(scipy.misc.imresize(np.abs(image[:,:,:,0]),mapE[:, :, 0, 0].shape))
+    img = Image.fromarray(np.abs((image[:,:,:,0] * 255)).astype(np.uint8))
+    resized = np.array(img.resize(mapE[:, :, 0, 0].shape))
+    im = ax[0].imshow(resized)
     for i in range(0,len(snake_hist),5):
         ax[0].plot(snake_hist[i][:, 1], snake_hist[i][:, 0], '-.', color=[i / len(snake_hist), i / len(snake_hist), 1-i / len(snake_hist)], lw=3)
     if not GT is None:
@@ -219,17 +232,29 @@ def plot_for_figure(snake, snake_hist, GT, mapE, mapA, mapB, mapK, grads_arrayE,
                     grads_arrayK, image, mask):
     # Plot result
     fig0, (ax) = plt.subplots(ncols=4, nrows=2)
-    im = ax[0,0].imshow(scipy.misc.imresize(np.abs(image[:, :, :, 0]), mapE[:, :, 0, 0].shape))
+    #im = ax[0,0].imshow(scipy.misc.imresize(np.abs(image[:, :, :, 0]), mapE[:, :, 0, 0].shape))
+    img = Image.fromarray(np.abs((image[:,:,:,0] * 255)).astype(np.uint8))
+    resized = np.array(img.resize(mapE[:, :, 0, 0].shape))
+    im = ax[0,0].imshow(resized)
 
-    im1 = ax[0, 1].imshow(scipy.misc.imresize(np.abs(image[:, :, :, 0])*0+255, mapE[:, :, 0, 0].shape))
+    #im1 = ax[0, 1].imshow(scipy.misc.imresize(np.abs(image[:, :, :, 0])*0+255, mapE[:, :, 0, 0].shape))
+    img = Image.fromarray(np.abs((image[:,:,:,0] * 0 + 255)).astype(np.uint8))
+    resized = np.array(img.resize(mapE[:, :, 0, 0].shape))
+    im1 = ax[0,1].imshow(resized)
     ax[0,1].plot(snake_hist[0][:, 1], snake_hist[0][:, 0], '--', color=[0.6, 0.2, 0], lw=3)
 
 
-    im2 = ax[0, 2].imshow(scipy.misc.imresize(np.abs(image[:, :, :, 0]) * 0 + 255, mapE[:, :, 0, 0].shape))
+    #im2 = ax[0, 2].imshow(scipy.misc.imresize(np.abs(image[:, :, :, 0]) * 0 + 255, mapE[:, :, 0, 0].shape))
+    img = Image.fromarray(np.abs((image[:,:,:,0] * 0 + 255)).astype(np.uint8))
+    resized = np.array(img.resize(mapE[:, :, 0, 0].shape))
+    im2 = ax[0,2].imshow(resized)
     ax[0,2].plot(snake_hist[1][:, 1], snake_hist[1][:, 0], '--', color=[0, 0, 0.5], lw=3)
 
 
-    im3 = ax[0, 3].imshow(scipy.misc.imresize(np.abs(image[:, :, :, 0]) * 0 + 255, mapE[:, :, 0, 0].shape))
+    #im3 = ax[0, 3].imshow(scipy.misc.imresize(np.abs(image[:, :, :, 0]) * 0 + 255, mapE[:, :, 0, 0].shape))
+    img = Image.fromarray(np.abs((image[:,:,:,0] * 0 + 255)).astype(np.uint8))
+    resized = np.array(img.resize(mapE[:, :, 0, 0].shape))
+    im3 = ax[0,3].imshow(resized)
     ax[0,3].plot(GT[:, 1], GT[:, 0], '--', color=[0.2, 1, 0.2], lw=3)
 
     # ax[0].plot(snake[:, 1], snake[:, 0], '--b', lw=3)
@@ -265,10 +290,10 @@ def plot_for_figure(snake, snake_hist, GT, mapE, mapA, mapB, mapK, grads_arrayE,
     plt.show()
 
 def weight_variable(shape,wd=0.0):
-    initial = tf.truncated_normal(shape, stddev=0.1)
+    initial = tf.random.truncated_normal(shape, stddev=0.1)
     var = tf.Variable(initial)
     weight_decay = tf.multiply(tf.nn.l2_loss(var), wd, name='weight_loss')
-    tf.add_to_collection('losses', weight_decay)
+    tf.compat.v1.add_to_collection('losses', weight_decay)
     return var
 
 def gaussian_filter(shape,sigma):
@@ -290,7 +315,7 @@ def conv2d(x, W, padding='SAME'):
 
 
 def max_pool_2x2(x):
-    return tf.nn.max_pool(x, ksize=[1, 2, 2, 1],
+    return tf.nn.max_pool2d(x, ksize=[1, 2, 2, 1],
                         strides=[1, 2, 2, 1], padding='SAME')
 
 def batch_norm(x):
@@ -379,9 +404,9 @@ def CNN_B(im_size,out_size,L,batch_size=1,layers = 5, wd=0.001, numfilt=None, E_
     if numfilt is None:
         numfilt = np.ones(layers,dtype=np.int32)*32
     #Input and output
-    x = tf.placeholder(tf.float32, shape=[im_size, im_size, 3, batch_size])
+    x = tf.compat.v1.placeholder(tf.float32, shape=[im_size, im_size, 3, batch_size])
     x_image = tf.reshape(x, [-1, im_size, im_size, 3])
-    y_ = tf.placeholder(tf.float32, shape=[L,2])
+    y_ = tf.compat.v1.placeholder(tf.float32, shape=[L,2])
 
     W_conv = []
     b_conv = []
@@ -402,7 +427,7 @@ def CNN_B(im_size,out_size,L,batch_size=1,layers = 5, wd=0.001, numfilt=None, E_
         h_conv.append(tf.nn.relu(conv2d(h_pool[-1], W_conv[-1],padding='SAME') + b_conv[-1]))
         h_pool.append(batch_norm(max_pool_2x2(h_conv[-1])))
         if layer >= stack_from:
-            resized_out.append(tf.image.resize_images(h_conv[-1], [out_size, out_size]))
+            resized_out.append(tf.image.resize(h_conv[-1], [out_size, out_size]))
 
     h_concat = tf.concat(resized_out,3)
 
@@ -444,13 +469,13 @@ def CNN_B(im_size,out_size,L,batch_size=1,layers = 5, wd=0.001, numfilt=None, E_
     predK = tf.reshape(h_fcK, [out_size, out_size, 1, -1])
 
     #Inject the gradients
-    grad_predE = tf.placeholder(tf.float32, shape=[out_size, out_size, 1, batch_size])
-    grad_predA = tf.placeholder(tf.float32, shape=[out_size, out_size, 1, batch_size])
-    grad_predB = tf.placeholder(tf.float32, shape=[out_size, out_size, 1, batch_size])
-    grad_predK = tf.placeholder(tf.float32, shape=[out_size, out_size, 1, batch_size])
-    l2loss = tf.add_n(tf.get_collection('losses'), name='l2_loss')
-    grad_l2loss = tf.placeholder(tf.float32, shape=[])
-    tvars = tf.trainable_variables()
+    grad_predE = tf.compat.v1.placeholder(tf.float32, shape=[out_size, out_size, 1, batch_size])
+    grad_predA = tf.compat.v1.placeholder(tf.float32, shape=[out_size, out_size, 1, batch_size])
+    grad_predB = tf.compat.v1.placeholder(tf.float32, shape=[out_size, out_size, 1, batch_size])
+    grad_predK = tf.compat.v1.placeholder(tf.float32, shape=[out_size, out_size, 1, batch_size])
+    l2loss = tf.add_n(tf.compat.v1.get_collection('losses'), name='l2_loss')
+    grad_l2loss = tf.compat.v1.placeholder(tf.float32, shape=[])
+    tvars = tf.compat.v1.trainable_variables()
     grads = tf.gradients([predE,predA,predB,predK,l2loss], tvars, grad_ys = [grad_predE,grad_predA,grad_predB,grad_predK,grad_l2loss])
 
     return tvars,grads,predE, predA, predB, predK, l2loss, grad_predE, grad_predA, grad_predB, grad_predK, grad_l2loss, x,y_
@@ -460,9 +485,9 @@ def CNN_B_alpha(im_size,out_size,L,batch_size=1,layers = 5, wd=0.001, numfilt=No
     if numfilt is None:
         numfilt = np.ones(layers,dtype=np.int32)*32
     #Input and output
-    x = tf.placeholder(tf.float32, shape=[im_size, im_size, 3, batch_size])
+    x = tf.compat.v1.placeholder(tf.float32, shape=[im_size, im_size, 3, batch_size])
     x_image = tf.reshape(x, [-1, im_size, im_size, 3])
-    y_ = tf.placeholder(tf.float32, shape=[L,2])
+    y_ = tf.compat.v1.placeholder(tf.float32, shape=[L,2])
 
     W_conv = []
     b_conv = []
@@ -525,12 +550,12 @@ def CNN_B_alpha(im_size,out_size,L,batch_size=1,layers = 5, wd=0.001, numfilt=No
     predK = tf.reshape(h_fcK, [out_size, out_size, 1, -1])
 
     #Inject the gradients
-    grad_predE = tf.placeholder(tf.float32, shape=[out_size, out_size, 1, batch_size])
-    grad_predA = tf.placeholder(tf.float32, shape=[out_size, out_size, 1, batch_size])
-    grad_predB = tf.placeholder(tf.float32, shape=[out_size, out_size, 1, batch_size])
-    grad_predK = tf.placeholder(tf.float32, shape=[out_size, out_size, 1, batch_size])
+    grad_predE = tf.compat.v1.placeholder(tf.float32, shape=[out_size, out_size, 1, batch_size])
+    grad_predA = tf.compat.v1.placeholder(tf.float32, shape=[out_size, out_size, 1, batch_size])
+    grad_predB = tf.compat.v1.placeholder(tf.float32, shape=[out_size, out_size, 1, batch_size])
+    grad_predK = tf.compat.v1.placeholder(tf.float32, shape=[out_size, out_size, 1, batch_size])
     l2loss = tf.add_n(tf.get_collection('losses'), name='l2_loss')
-    grad_l2loss = tf.placeholder(tf.float32, shape=[])
+    grad_l2loss = tf.compat.v1.placeholder(tf.float32, shape=[])
     tvars = tf.trainable_variables()
     grads = tf.gradients([predE,predA,predB,predK,l2loss], tvars, grad_ys = [grad_predE,grad_predA,grad_predB,grad_predK,grad_l2loss])
 
@@ -541,9 +566,9 @@ def CNN_B_scalar(im_size,out_size,L,batch_size=1,layers = 5, wd=0.001, numfilt=N
     if numfilt is None:
         numfilt = np.ones(layers,dtype=np.int32)*32
     #Input and output
-    x = tf.placeholder(tf.float32, shape=[im_size, im_size, 3, batch_size])
+    x = tf.compat.v1.placeholder(tf.float32, shape=[im_size, im_size, 3, batch_size])
     x_image = tf.reshape(x, [-1, im_size, im_size, 3])
-    y_ = tf.placeholder(tf.float32, shape=[L,2])
+    y_ = tf.compat.v1.placeholder(tf.float32, shape=[L,2])
 
     W_conv = []
     b_conv = []
@@ -608,27 +633,27 @@ def CNN_B_scalar(im_size,out_size,L,batch_size=1,layers = 5, wd=0.001, numfilt=N
     predK = tf.reshape(h_fcK, [out_size, out_size, 1, -1])
 
     #Inject the gradients
-    grad_predE = tf.placeholder(tf.float32, shape=[out_size, out_size, 1, batch_size])
-    grad_predA = tf.placeholder(tf.float32, shape=[out_size, out_size, 1, batch_size])
-    grad_predB = tf.placeholder(tf.float32, shape=[out_size, out_size, 1, batch_size])
-    grad_predK = tf.placeholder(tf.float32, shape=[out_size, out_size, 1, batch_size])
+    grad_predE = tf.compat.v1.placeholder(tf.float32, shape=[out_size, out_size, 1, batch_size])
+    grad_predA = tf.compat.v1.placeholder(tf.float32, shape=[out_size, out_size, 1, batch_size])
+    grad_predB = tf.compat.v1.placeholder(tf.float32, shape=[out_size, out_size, 1, batch_size])
+    grad_predK = tf.compat.v1.placeholder(tf.float32, shape=[out_size, out_size, 1, batch_size])
     l2loss = tf.add_n(tf.get_collection('losses'), name='l2_loss')
-    grad_l2loss = tf.placeholder(tf.float32, shape=[])
+    grad_l2loss = tf.compat.v1.placeholder(tf.float32, shape=[])
     tvars = tf.trainable_variables()
     grads = tf.gradients([predE,predA,predB,predK,l2loss], tvars, grad_ys = [grad_predE,grad_predA,grad_predB,grad_predK,grad_l2loss])
 
     return tvars,grads,predE, predA, predB, predK, l2loss, grad_predE, grad_predA, grad_predB, grad_predK, grad_l2loss, x,y_
 
 def snake_graph(out_size,L,niter=100):
-    tf_alpha = tf.placeholder(tf.float32, shape=[out_size, out_size])
-    tf_beta = tf.placeholder(tf.float32, shape=[out_size, out_size])
-    tf_kappa = tf.placeholder(tf.float32, shape=[out_size, out_size])
-    tf_Du = tf.placeholder(tf.float32, shape=[out_size, out_size])
-    tf_Dv = tf.placeholder(tf.float32, shape=[out_size, out_size])
-    tf_u0 = tf.placeholder(tf.float32, shape=[L, 1])
-    tf_v0 = tf.placeholder(tf.float32, shape=[L, 1])
-    tf_du0 = tf.placeholder(tf.float32, shape=[L, 1])
-    tf_dv0 = tf.placeholder(tf.float32, shape=[L, 1])
+    tf_alpha = tf.compat.v1.placeholder(tf.float32, shape=[out_size, out_size])
+    tf_beta = tf.compat.v1.placeholder(tf.float32, shape=[out_size, out_size])
+    tf_kappa = tf.compat.v1.placeholder(tf.float32, shape=[out_size, out_size])
+    tf_Du = tf.compat.v1.placeholder(tf.float32, shape=[out_size, out_size])
+    tf_Dv = tf.compat.v1.placeholder(tf.float32, shape=[out_size, out_size])
+    tf_u0 = tf.compat.v1.placeholder(tf.float32, shape=[L, 1])
+    tf_v0 = tf.compat.v1.placeholder(tf.float32, shape=[L, 1])
+    tf_du0 = tf.compat.v1.placeholder(tf.float32, shape=[L, 1])
+    tf_dv0 = tf.compat.v1.placeholder(tf.float32, shape=[L, 1])
     gamma = tf.constant(1, dtype=tf.float32)
     max_px_move = tf.constant(1, dtype=tf.float32)
     delta_s = tf.constant(out_size / L, dtype=tf.float32)
