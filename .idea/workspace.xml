@@ -5,10 +5,30 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="8d8cc412-fdb8-4ec5-9528-2bec25796c09" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/main_vaihingen.py" beforeDir="false" afterPath="$PROJECT_DIR$/main_vaihingen.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/snake_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/snake_utils.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/vaihingen/checkpoint" beforeDir="false" afterPath="$PROJECT_DIR$/models/vaihingen/checkpoint" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/vaihingen/model-3.data-00000-of-00001" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/vaihingen/model-3.index" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/vaihingen/model-3.meta" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/vaihingen/model-4.data-00000-of-00001" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/vaihingen/model-4.index" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/vaihingen/model-4.meta" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/vaihingen/model-5.data-00000-of-00001" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/vaihingen/model-5.index" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/vaihingen/model-5.meta" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/vaihingen/model-6.data-00000-of-00001" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/vaihingen/model-6.index" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/vaihingen/model-6.meta" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/vaihingen/model-7.data-00000-of-00001" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/vaihingen/model-7.index" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/vaihingen/model-7.meta" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/vaihingen/model-8.data-00000-of-00001" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/vaihingen/model-8.index" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/vaihingen/model-8.meta" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/vaihingen/model-9.data-00000-of-00001" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/vaihingen/model-9.index" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/vaihingen/model-9.meta" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -96,11 +116,6 @@
           <url>file://$PROJECT_DIR$/snake_utils.py</url>
           <line>233</line>
           <option name="timeStamp" value="3" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/main_vaihingen.py</url>
-          <line>189</line>
-          <option name="timeStamp" value="4" />
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>

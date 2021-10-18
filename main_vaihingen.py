@@ -19,7 +19,7 @@ warnings.filterwarnings("ignore")
 import matplotlib.pyplot as plt
 
 model_path = 'models/vaihingen/'
-do_plot = True
+do_plot = False
 do_train = True
 start_test = 100
 
